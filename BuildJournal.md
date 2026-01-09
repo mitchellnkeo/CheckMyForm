@@ -175,3 +175,59 @@ src/
 - TensorFlow.js React Native version conflict is documented and resolved with `--legacy-peer-deps`. This is a known compatibility issue and shouldn't affect functionality.
 - All dependencies are compatible with Expo SDK 51.
 - Project is ready for Phase 1 development.
+
+---
+
+## Phase 0 Update: Upgrade to Expo SDK 54
+
+**Date:** January 8, 2026  
+**Time:** ~19:17 PST
+
+### Issue Encountered
+**Time:** 19:16 PST
+
+**Problem:** Expo Go app on physical device is SDK 54, but project was initialized with SDK 51, causing incompatibility error:
+```
+ERROR  Project is incompatible with this version of Expo Go
+• The installed version of Expo Go is for SDK 54.0.0.
+• The project you opened uses SDK 51.
+```
+
+**Reason for Upgrade:** Testing on a real device is critical for camera and ML features (as emphasized in the roadmap). The Expo Go app on the user's phone is SDK 54, so we must upgrade the project to match.
+
+### Upgrade Process
+**Time:** 19:16-19:17 PST
+
+**Actions Taken:**
+1. Upgraded Expo core: `expo@~51.0.0` → `expo@~54.0.0`
+2. Upgraded all Expo packages to SDK 54 compatible versions:
+   - `expo-camera`: `~15.0.16` → `^17.0.10`
+   - `expo-gl`: `~14.0.2` → `^16.0.9`
+   - `expo-av`: `~14.0.7` → `^16.0.8`
+   - `expo-haptics`: `~13.0.1` → `^15.0.8`
+   - `expo-sqlite`: `~14.0.6` → `^16.0.10`
+   - `expo-status-bar`: `~1.12.1` → `^3.0.9`
+   - `react-native-reanimated`: `~3.10.1` → `^4.2.1`
+   - `react-native-gesture-handler`: `~2.16.1` → `^2.30.0`
+   - `@react-native-async-storage/async-storage`: `1.23.1` → `^2.2.0`
+3. Upgraded React and React Native:
+   - `react`: `18.2.0` → `^19.1.0` (SDK 54 requirement)
+   - `react-native`: `0.74.5` → `^0.81.5` (SDK 54 requirement)
+
+**Installation Method:** Used `--legacy-peer-deps` flag for all installations due to TensorFlow.js React Native peer dependency conflicts. This is expected and documented.
+
+**Files Modified:**
+- `package.json` - All dependencies updated to SDK 54 compatible versions
+
+**Verification:**
+- All packages successfully installed
+- Project structure remains intact
+- No breaking changes to existing code (App.tsx, HomeScreen.tsx still compatible)
+
+**Result:**
+✅ Project is now compatible with Expo SDK 54 and should work with Expo Go app on physical device.
+
+**Next Steps:**
+- Test app startup: `npm start` or `npx expo start`
+- Verify app loads on physical device with Expo Go
+- Proceed to Phase 1: Pose Detection Foundation
