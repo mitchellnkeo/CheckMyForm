@@ -30,7 +30,7 @@
 ### Tasks:
 - [ ] Initialize Expo project with TypeScript template
   ```bash
-  npx create-expo-app@latest FormCheckAI --template expo-template-blank-typescript
+  npx create-expo-app@latest CheckMyFormAI --template expo-template-blank-typescript
   ```
 - [ ] Install core dependencies:
   ```bash

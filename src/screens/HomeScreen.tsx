@@ -3,7 +3,7 @@ import { View, Text, StyleSheet } from 'react-native';
 export default function HomeScreen() {
   return (
     <View style={styles.container}>
-      <Text style={styles.title}>FormCheckAI</Text>
+      <Text style={styles.title}>CheckMyFormAI</Text>
       <Text style={styles.subtitle}>Workout Form Analyzer</Text>
     </View>
   );
