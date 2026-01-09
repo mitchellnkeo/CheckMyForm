@@ -2,7 +2,7 @@
 
 ## Project Overview
 
-**Goal:** Build a production-ready React Native mobile app that uses computer vision to analyze workout form in real-time, count reps, and provide instant feedback. Be sure to build slowly and commit in increments so as to now crash the Mac laptop that the app is being built on. Document everything being done.
+**Goal:** Build a production-ready React Native mobile app that uses computer vision to analyze workout form in real-time, count reps, and provide instant feedback. Be sure to build slowly and commit in increments so as to now crash the Mac laptop that the app is being built on. Document everything being done in BuildJournal.md. Ensure each step works before moving on to the next step.
 
 **Target Users:** Fitness enthusiasts, beginners learning proper form, home workout practitioners
 
