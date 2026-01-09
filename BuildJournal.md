@@ -1,0 +1,1 @@
+# In this build journal, document all steps done with reasons why those steps were taken. Ensure that everything document has the date and time.
