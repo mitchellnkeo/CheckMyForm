@@ -1,0 +1,48 @@
+{
+  "expo": {
+    "name": "FormCheckAI",
+    "slug": "formcheckai",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "light",
+    "splash": {
+      "image": "./assets/splash.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#ffffff"
+    },
+    "assetBundlePatterns": [
+      "**/*"
+    ],
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.formcheckai.app",
+      "infoPlist": {
+        "NSCameraUsageDescription": "This app needs access to your camera to analyze your workout form in real-time.",
+        "NSMicrophoneUsageDescription": "This app needs access to your microphone for audio feedback during workouts."
+      }
+    },
+    "android": {
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#ffffff"
+      },
+      "package": "com.formcheckai.app",
+      "permissions": [
+        "CAMERA",
+        "RECORD_AUDIO"
+      ]
+    },
+    "web": {
+      "favicon": "./assets/favicon.png"
+    },
+    "plugins": [
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "Allow FormCheckAI to access your camera to analyze workout form."
+        }
+      ]
+    ]
+  }
+}
