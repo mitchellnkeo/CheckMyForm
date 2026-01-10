@@ -7,25 +7,27 @@ interface PoseOverlayProps {
   pose: Pose | null;
   width: number;
   height: number;
-  modelInputSize?: number; // Size of model input (256 for MoveNet)
+  useNormalizedCoordinates?: boolean; // If true, coordinates are 0-1 (ML Kit), else pixel coordinates
 }
 
 /**
  * Component to overlay pose keypoints and skeleton on camera feed
+ * Supports both normalized coordinates (0-1) from ML Kit and pixel coordinates
  */
 export default function PoseOverlay({
   pose,
   width,
   height,
-  modelInputSize = 256,
+  useNormalizedCoordinates = true, // ML Kit uses normalized coordinates
 }: PoseOverlayProps) {
   if (!pose) {
     return null;
   }
 
-  // Scale factor to convert from model coordinates (0-1) to screen coordinates
-  const scaleX = width / modelInputSize;
-  const scaleY = height / modelInputSize;
+  // Scale factor: if normalized, scale from 0-1 to screen size
+  // If pixel coordinates, use 1:1 (or adjust based on model input size)
+  const scaleX = useNormalizedCoordinates ? width : 1;
+  const scaleY = useNormalizedCoordinates ? height : 1;
 
   // Keypoint colors
   const keypointColor = '#00FF00'; // Green

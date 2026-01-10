@@ -9,10 +9,7 @@ import {
   Image,
 } from 'react-native';
 import { CameraView, useCameraPermissions } from 'expo-camera';
-import * as tf from '@tensorflow/tfjs';
-import '@tensorflow/tfjs-react-native';
-import * as ImageManipulator from 'expo-image-manipulator';
-import { poseDetectionService } from '@/services/poseDetection';
+import { mlkitPoseDetectionService } from '@/services/mlkitPoseDetection';
 import { Pose } from '@/types/pose';
 import PoseOverlay from '@/components/PoseOverlay';
 
@@ -42,7 +39,7 @@ export default function CameraScreen() {
   const fpsUpdateIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const processingRef = useRef<boolean>(false);
 
-  // Initialize TensorFlow.js and load model
+  // Initialize ML Kit pose detection
   useEffect(() => {
     let mounted = true;
 
@@ -50,19 +47,16 @@ export default function CameraScreen() {
       try {
         setIsLoading(true);
         setError(null);
-        setLoadingMessage('Initializing TensorFlow.js...');
+        setLoadingMessage('Initializing ML Kit...');
 
-        // Initialize pose detection service with progress callback
-        await poseDetectionService.initialize((message) => {
-          if (mounted) {
-            setLoadingMessage(message);
-          }
-        });
+        // Initialize ML Kit pose detection service
+        await mlkitPoseDetectionService.initialize();
 
         if (mounted) {
           setIsInitialized(true);
           setIsLoading(false);
-          console.log('Pose detection initialized successfully');
+          setLoadingMessage('ML Kit ready!');
+          console.log('ML Kit pose detection initialized successfully');
         }
       } catch (err) {
         console.error('Initialization error:', err);
@@ -70,12 +64,12 @@ export default function CameraScreen() {
           setError(
             err instanceof Error
               ? err.message
-              : 'Failed to initialize pose detection'
+              : 'Failed to initialize ML Kit pose detection'
           );
           setIsLoading(false);
           Alert.alert(
             'Initialization Error',
-            'Failed to load pose detection model. Please restart the app.',
+            'Failed to initialize ML Kit. Please restart the app.',
             [{ text: 'OK' }]
           );
         }
@@ -87,7 +81,7 @@ export default function CameraScreen() {
     return () => {
       mounted = false;
       // Cleanup on unmount
-      poseDetectionService.dispose();
+      mlkitPoseDetectionService.dispose();
     };
   }, []);
 
@@ -141,80 +135,35 @@ export default function CameraScreen() {
       // Capture frame from camera using takePictureAsync
       // NOTE: This is an MVP approach - takePictureAsync is slow (200-500ms per frame)
       // Processing at 5 FPS to avoid overwhelming the device
-      // TODO: Optimize using expo-gl texture for real-time processing at 30 FPS
+      // ML Kit works with image URIs, so this approach works well
       
       const photo = await cameraRef.current.takePictureAsync({
-        quality: 0.3, // Lower quality for faster processing
-        base64: true,
-        skipProcessing: true, // Skip processing for speed
+        quality: 0.5, // Medium quality for balance
+        base64: false,
+        skipProcessing: false,
         exif: false,
       });
 
-      if (!photo || !photo.uri || !photo.base64) {
+      if (!photo || !photo.uri) {
         processingRef.current = false;
         return;
       }
 
-      // Resize image to model input size (256x256) for faster processing
-      const manipulatedImage = await ImageManipulator.manipulateAsync(
-        photo.uri,
-        [{ resize: { width: 256, height: 256 } }],
-        { 
-          compress: 0.8, 
-          format: ImageManipulator.SaveFormat.JPEG, 
-          base64: true 
-        }
-      );
+      // ML Kit can work directly with image URI
+      // Detect pose using ML Kit
+      const detectedPose = await mlkitPoseDetectionService.detectPose(photo.uri);
 
-      if (!manipulatedImage.base64) {
-        processingRef.current = false;
-        return;
+      if (detectedPose) {
+        setPose(detectedPose);
+      } else {
+        setPose(null);
       }
 
-      // Convert base64 image to tensor
-      // Using a React Native compatible approach with Image component
-      // This is a workaround - proper solution would use expo-gl texture
-      const imageDataUri = `data:image/jpeg;base64,${manipulatedImage.base64}`;
-      
-      // Load image using React Native Image component
-      return new Promise<void>((resolve) => {
-        Image.getSize(
-          imageDataUri,
-          async (width, height) => {
-            try {
-              // For React Native, we need to use a different approach
-              // Using fetch to get image data, then converting
-              // Note: This is a simplified approach - may need optimization
-              const response = await fetch(imageDataUri);
-              const arrayBuffer = await response.arrayBuffer();
-              const uint8Array = new Uint8Array(arrayBuffer);
-              
-              // Create image tensor from pixel data
-              // This is a placeholder - actual implementation needs proper pixel extraction
-              // For now, logging that we need to implement proper tensor conversion
-              console.log('Frame captured, need to implement tensor conversion');
-              
-              // TODO: Implement proper image to tensor conversion for React Native
-              // Options: expo-gl texture, react-native-image-to-tensor, or custom solution
-              
-              frameCountRef.current++;
-              processingRef.current = false;
-              resolve();
-            } catch (tensorError) {
-              console.error('Error processing image:', tensorError);
-              processingRef.current = false;
-              resolve();
-            }
-          },
-          (error) => {
-            console.error('Error getting image size:', error);
-            processingRef.current = false;
-            resolve();
-          }
-        );
-      });
+      frameCountRef.current++;
     } catch (err) {
       console.error('Error processing frame:', err);
+      // Don't set pose to null on error, keep last detected pose
+    } finally {
       processingRef.current = false;
     }
   }, [isInitialized]);
@@ -249,8 +198,8 @@ export default function CameraScreen() {
         <ActivityIndicator size="large" color="#00FF00" />
         <Text style={styles.text}>{loadingMessage}</Text>
         <Text style={styles.hintText}>
-          First load may take 30-60 seconds{'\n'}
-          (downloading ~7MB model)
+          ML Kit initializes quickly{'\n'}
+          (no model download needed)
         </Text>
         {error && <Text style={styles.errorText}>{error}</Text>}
       </View>
@@ -277,7 +226,7 @@ export default function CameraScreen() {
           pose={pose}
           width={CAMERA_WIDTH}
           height={CAMERA_HEIGHT}
-          modelInputSize={256}
+          useNormalizedCoordinates={true}
         />
       </CameraView>
 
