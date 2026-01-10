@@ -42,6 +42,12 @@
         {
           "cameraPermission": "Allow CheckMyFormAI to access your camera to analyze workout form."
         }
+      ],
+      [
+        "react-native-vision-camera",
+        {
+          "cameraPermissionText": "Allow CheckMyFormAI to access your camera to analyze workout form."
+        }
       ]
     ]
   }

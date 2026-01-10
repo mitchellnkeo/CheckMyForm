@@ -1,16 +1,90 @@
 import { Pose, Keypoint, KeypointIndex } from '@/types/pose';
-import MLKitPoseDetection from 'react-native-mlkit-pose-detection';
+import { initializeVisionCameraFrameProcessor } from 'react-native-mlkit-pose-detection';
+import type { Frame } from 'react-native-vision-camera';
+import type { SKRNMLKitVisionCameraPluginResultPoseItem } from 'react-native-mlkit-pose-detection';
+
+/**
+ * Convert ML Kit pose detection results to our pose format
+ * This function is worklet-compatible (can be called from frame processor)
+ */
+function convertMLKitPoseToPose(
+  frame: Frame,
+  mlkitPose: SKRNMLKitVisionCameraPluginResultPoseItem
+): Pose | null {
+  'worklet';
+  
+  const keypoints: Keypoint[] = [];
+  let totalScore = 0;
+  let validKeypoints = 0;
+
+  // ML Kit keypoint names (BlazePose format - capitalized)
+  const keypointMapping: { mlkitKey: string; ourIndex: KeypointIndex }[] = [
+    { mlkitKey: 'Nose', ourIndex: KeypointIndex.NOSE },
+    { mlkitKey: 'LeftEyeInner', ourIndex: KeypointIndex.LEFT_EYE },
+    { mlkitKey: 'RightEyeInner', ourIndex: KeypointIndex.RIGHT_EYE },
+    { mlkitKey: 'LeftEar', ourIndex: KeypointIndex.LEFT_EAR },
+    { mlkitKey: 'RightEar', ourIndex: KeypointIndex.RIGHT_EAR },
+    { mlkitKey: 'LeftShoulder', ourIndex: KeypointIndex.LEFT_SHOULDER },
+    { mlkitKey: 'RightShoulder', ourIndex: KeypointIndex.RIGHT_SHOULDER },
+    { mlkitKey: 'LeftElbow', ourIndex: KeypointIndex.LEFT_ELBOW },
+    { mlkitKey: 'RightElbow', ourIndex: KeypointIndex.RIGHT_ELBOW },
+    { mlkitKey: 'LeftWrist', ourIndex: KeypointIndex.LEFT_WRIST },
+    { mlkitKey: 'RightWrist', ourIndex: KeypointIndex.RIGHT_WRIST },
+    { mlkitKey: 'LeftHip', ourIndex: KeypointIndex.LEFT_HIP },
+    { mlkitKey: 'RightHip', ourIndex: KeypointIndex.RIGHT_HIP },
+    { mlkitKey: 'LeftKnee', ourIndex: KeypointIndex.LEFT_KNEE },
+    { mlkitKey: 'RightKnee', ourIndex: KeypointIndex.RIGHT_KNEE },
+    { mlkitKey: 'LeftAnkle', ourIndex: KeypointIndex.LEFT_ANKLE },
+    { mlkitKey: 'RightAnkle', ourIndex: KeypointIndex.RIGHT_ANKLE },
+  ];
+
+  // Initialize array with 17 keypoints
+  for (let i = 0; i < 17; i++) {
+    keypoints.push({ x: 0, y: 0, score: 0 });
+  }
+
+  // Map ML Kit keypoints to our format
+  const frameWidth = frame.width;
+  const frameHeight = frame.height;
+  
+  keypointMapping.forEach(({ mlkitKey, ourIndex }) => {
+    const mlkitKeypoint = mlkitPose[mlkitKey as keyof SKRNMLKitVisionCameraPluginResultPoseItem];
+    if (mlkitKeypoint && mlkitKeypoint.inFrameLikelihood > 0.3) {
+      // ML Kit returns pixel coordinates, normalize to 0-1 for our overlay
+      keypoints[ourIndex] = {
+        x: mlkitKeypoint.position.x / frameWidth, // Normalized 0-1
+        y: mlkitKeypoint.position.y / frameHeight, // Normalized 0-1
+        score: mlkitKeypoint.inFrameLikelihood,
+      };
+      totalScore += mlkitKeypoint.inFrameLikelihood;
+      validKeypoints++;
+    }
+  });
+
+  // Calculate overall pose score
+  const poseScore = validKeypoints > 0 ? totalScore / validKeypoints : 0;
+
+  // Return pose if we have enough valid keypoints
+  if (validKeypoints >= 5) {
+    return {
+      keypoints,
+      score: poseScore,
+    };
+  }
+
+  return null;
+}
 
 /**
  * ML Kit Pose Detection Service
- * Uses Google's ML Kit for pose detection (BlazePose model)
+ * Uses Google's ML Kit for pose detection (BlazePose model) with Vision Camera
  */
 class MLKitPoseDetectionService {
   private isInitialized = false;
   private isLoading = false;
 
   /**
-   * Initialize ML Kit pose detection
+   * Initialize ML Kit pose detection for Vision Camera
    */
   async initialize(): Promise<void> {
     if (this.isInitialized) {
@@ -23,12 +97,16 @@ class MLKitPoseDetectionService {
 
     try {
       this.isLoading = true;
-      console.log('Initializing ML Kit pose detection...');
+      console.log('Initializing ML Kit pose detection for Vision Camera...');
       
-      // ML Kit doesn't require explicit initialization
-      // It initializes on first use
+      // Initialize Vision Camera frame processor
+      await initializeVisionCameraFrameProcessor({
+        detectorMode: 'stream', // Use stream mode for real-time detection
+        preferredHardwareConfigs: ['GPU'], // Use GPU acceleration
+      });
+      
       this.isInitialized = true;
-      console.log('ML Kit pose detection ready');
+      console.log('ML Kit pose detection ready for Vision Camera');
     } catch (error) {
       console.error('Error initializing ML Kit:', error);
       this.isLoading = false;
@@ -48,91 +126,25 @@ class MLKitPoseDetectionService {
   }
 
   /**
-   * Detect pose from an image URI
-   * @param imageUri - URI of the image (file:// or local path)
-   * @returns Detected pose or null if no pose found
+   * Process ML Kit pose detection results and convert to our format
+   * This is a wrapper that can be called from JS (not worklet)
+   * For worklet usage, use convertMLKitPoseToPose directly
    */
-  async detectPose(imageUri: string): Promise<Pose | null> {
+  processFrame(frame: Frame, mlkitPoses: SKRNMLKitVisionCameraPluginResultPoseItem[]): Pose | null {
     if (!this.isReady()) {
-      throw new Error('ML Kit pose detection service not initialized');
+      return null;
     }
 
     try {
-      // ML Kit pose detection
-      const poses = await MLKitPoseDetection.detectPose(imageUri);
-
-      if (!poses || poses.length === 0) {
+      if (!mlkitPoses || mlkitPoses.length === 0) {
         return null;
       }
 
       // Use the first detected pose (ML Kit can detect multiple)
-      const mlkitPose = poses[0];
-
-      // Convert ML Kit keypoints to our format
-      // ML Kit has 33 keypoints, we'll extract the 17 we need
-      const keypoints: Keypoint[] = [];
-      let totalScore = 0;
-      let validKeypoints = 0;
-
-      // Map ML Kit's 33 keypoints to our 17 keypoint indices
-      const keypointMapping: { mlkitIndex: number; ourIndex: KeypointIndex }[] = [
-        { mlkitIndex: 0, ourIndex: KeypointIndex.NOSE }, // Nose
-        { mlkitIndex: 2, ourIndex: KeypointIndex.LEFT_EYE }, // Left eye
-        { mlkitIndex: 5, ourIndex: KeypointIndex.RIGHT_EYE }, // Right eye
-        { mlkitIndex: 7, ourIndex: KeypointIndex.LEFT_EAR }, // Left ear
-        { mlkitIndex: 8, ourIndex: KeypointIndex.RIGHT_EAR }, // Right ear
-        { mlkitIndex: 11, ourIndex: KeypointIndex.LEFT_SHOULDER }, // Left shoulder
-        { mlkitIndex: 12, ourIndex: KeypointIndex.RIGHT_SHOULDER }, // Right shoulder
-        { mlkitIndex: 13, ourIndex: KeypointIndex.LEFT_ELBOW }, // Left elbow
-        { mlkitIndex: 14, ourIndex: KeypointIndex.RIGHT_ELBOW }, // Right elbow
-        { mlkitIndex: 15, ourIndex: KeypointIndex.LEFT_WRIST }, // Left wrist
-        { mlkitIndex: 16, ourIndex: KeypointIndex.RIGHT_WRIST }, // Right wrist
-        { mlkitIndex: 23, ourIndex: KeypointIndex.LEFT_HIP }, // Left hip
-        { mlkitIndex: 24, ourIndex: KeypointIndex.RIGHT_HIP }, // Right hip
-        { mlkitIndex: 25, ourIndex: KeypointIndex.LEFT_KNEE }, // Left knee
-        { mlkitIndex: 26, ourIndex: KeypointIndex.RIGHT_KNEE }, // Right knee
-        { mlkitIndex: 27, ourIndex: KeypointIndex.LEFT_ANKLE }, // Left ankle
-        { mlkitIndex: 28, ourIndex: KeypointIndex.RIGHT_ANKLE }, // Right ankle
-      ];
-
-      // Initialize array with 17 keypoints
-      for (let i = 0; i < 17; i++) {
-        keypoints.push({ x: 0, y: 0, score: 0 });
-      }
-
-      // Map ML Kit keypoints to our format
-      if (mlkitPose.landmarks && Array.isArray(mlkitPose.landmarks)) {
-        keypointMapping.forEach(({ mlkitIndex, ourIndex }) => {
-          const mlkitKeypoint = mlkitPose.landmarks[mlkitIndex];
-          if (mlkitKeypoint && mlkitKeypoint.likelihood > 0.3) {
-            // ML Kit uses normalized coordinates (0-1), convert to pixel coordinates
-            // Note: We'll need image dimensions to convert properly
-            // For now, using normalized coordinates (will scale in overlay)
-            keypoints[ourIndex] = {
-              x: mlkitKeypoint.x, // Normalized 0-1
-              y: mlkitKeypoint.y, // Normalized 0-1
-              score: mlkitKeypoint.likelihood,
-            };
-            totalScore += mlkitKeypoint.likelihood;
-            validKeypoints++;
-          }
-        });
-      }
-
-      // Calculate overall pose score
-      const poseScore = validKeypoints > 0 ? totalScore / validKeypoints : 0;
-
-      // Return pose if we have enough valid keypoints
-      if (validKeypoints >= 5) {
-        return {
-          keypoints,
-          score: poseScore,
-        };
-      }
-
-      return null;
+      const mlkitPose = mlkitPoses[0];
+      return convertMLKitPoseToPose(frame, mlkitPose);
     } catch (error) {
-      console.error('Error detecting pose with ML Kit:', error);
+      console.error('Error processing frame with ML Kit:', error);
       return null;
     }
   }
@@ -147,3 +159,6 @@ class MLKitPoseDetectionService {
 
 // Export singleton instance
 export const mlkitPoseDetectionService = new MLKitPoseDetectionService();
+
+// Export conversion function for use in frame processors
+export { convertMLKitPoseToPose };

@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState, useCallback } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   View,
   Text,
@@ -6,10 +6,11 @@ import {
   Dimensions,
   ActivityIndicator,
   Alert,
-  Image,
 } from 'react-native';
-import { CameraView, useCameraPermissions } from 'expo-camera';
-import { mlkitPoseDetectionService } from '@/services/mlkitPoseDetection';
+import { Camera, useCameraDevice, useFrameProcessor } from 'react-native-vision-camera';
+import { useSharedValue, runOnJS } from 'react-native-reanimated';
+import { scanSKRNMLKitPose } from 'react-native-mlkit-pose-detection';
+import { mlkitPoseDetectionService, convertMLKitPoseToPose } from '@/services/mlkitPoseDetection';
 import { Pose } from '@/types/pose';
 import PoseOverlay from '@/components/PoseOverlay';
 
@@ -18,26 +19,26 @@ const CAMERA_ASPECT_RATIO = 4 / 3; // Standard camera aspect ratio
 const CAMERA_WIDTH = SCREEN_WIDTH;
 const CAMERA_HEIGHT = SCREEN_WIDTH / CAMERA_ASPECT_RATIO;
 
-// Target FPS for pose detection
-// Note: Using lower rate (5 FPS) for MVP with takePictureAsync
-// Future: Optimize to 30 FPS using expo-gl texture
-const TARGET_FPS = 5; // Reduced for MVP - takePictureAsync is slow
-const FRAME_INTERVAL_MS = 1000 / TARGET_FPS;
-
 export default function CameraScreen() {
-  const [permission, requestPermission] = useCameraPermissions();
+  const device = useCameraDevice('front');
+  const [hasPermission, setHasPermission] = useState<boolean | null>(null);
   const [isInitialized, setIsInitialized] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [loadingMessage, setLoadingMessage] = useState('Initializing...');
   const [error, setError] = useState<string | null>(null);
-  const [pose, setPose] = useState<Pose | null>(null);
+  const pose = useSharedValue<Pose | null>(null);
   const [fps, setFps] = useState(0);
 
-  const cameraRef = useRef<CameraView>(null);
-  const lastFrameTimeRef = useRef<number>(0);
   const frameCountRef = useRef<number>(0);
   const fpsUpdateIntervalRef = useRef<NodeJS.Timeout | null>(null);
-  const processingRef = useRef<boolean>(false);
+
+  // Request camera permission
+  useEffect(() => {
+    (async () => {
+      const status = await Camera.requestCameraPermission();
+      setHasPermission(status === 'granted');
+    })();
+  }, []);
 
   // Initialize ML Kit pose detection
   useEffect(() => {
@@ -76,14 +77,16 @@ export default function CameraScreen() {
       }
     };
 
-    initialize();
+    if (hasPermission === true) {
+      initialize();
+    }
 
     return () => {
       mounted = false;
       // Cleanup on unmount
       mlkitPoseDetectionService.dispose();
     };
-  }, []);
+  }, [hasPermission]);
 
   // FPS counter update
   useEffect(() => {
@@ -99,77 +102,49 @@ export default function CameraScreen() {
     };
   }, []);
 
-  // Start frame processing when camera is ready
-  useEffect(() => {
+  // Update pose state from shared value (for UI rendering)
+  const [poseState, setPoseState] = useState<Pose | null>(null);
+  
+  const updatePose = (newPose: Pose | null) => {
+    'worklet';
+    pose.value = newPose;
+    runOnJS(setPoseState)(newPose);
+  };
+
+  // Vision Camera frame processor for real-time pose detection
+  const frameProcessor = useFrameProcessor((frame) => {
+    'worklet';
+    
     if (!isInitialized) {
       return;
     }
 
-    const frameProcessor = setInterval(() => {
-      processFrame();
-    }, FRAME_INTERVAL_MS);
-
-    return () => {
-      clearInterval(frameProcessor);
-    };
-  }, [isInitialized, processFrame]);
-
-  // Process camera frame for pose detection
-  const processFrame = useCallback(async () => {
-    if (!isInitialized || !cameraRef.current || processingRef.current) {
-      return;
-    }
-
-    const now = Date.now();
-    const timeSinceLastFrame = now - lastFrameTimeRef.current;
-
-    // Throttle to target FPS
-    if (timeSinceLastFrame < FRAME_INTERVAL_MS) {
-      return;
-    }
-
-    processingRef.current = true;
-    lastFrameTimeRef.current = now;
-
     try {
-      // Capture frame from camera using takePictureAsync
-      // NOTE: This is an MVP approach - takePictureAsync is slow (200-500ms per frame)
-      // Processing at 5 FPS to avoid overwhelming the device
-      // ML Kit works with image URIs, so this approach works well
+      // Scan frame for poses using ML Kit (runs in worklet)
+      const mlkitPoses = scanSKRNMLKitPose(frame);
       
-      const photo = await cameraRef.current.takePictureAsync({
-        quality: 0.5, // Medium quality for balance
-        base64: false,
-        skipProcessing: false,
-        exif: false,
-      });
-
-      if (!photo || !photo.uri) {
-        processingRef.current = false;
+      if (!mlkitPoses || mlkitPoses.length === 0) {
+        updatePose(null);
         return;
       }
-
-      // ML Kit can work directly with image URI
-      // Detect pose using ML Kit
-      const detectedPose = await mlkitPoseDetectionService.detectPose(photo.uri);
-
-      if (detectedPose) {
-        setPose(detectedPose);
-      } else {
-        setPose(null);
-      }
-
-      frameCountRef.current++;
-    } catch (err) {
-      console.error('Error processing frame:', err);
-      // Don't set pose to null on error, keep last detected pose
-    } finally {
-      processingRef.current = false;
+      
+      // Convert ML Kit pose to our format (runs in worklet)
+      const detectedPose = convertMLKitPoseToPose(frame, mlkitPoses[0]);
+      
+      // Update pose (runs on JS thread)
+      updatePose(detectedPose);
+      
+      // Increment frame counter (runs on JS thread)
+      runOnJS(() => {
+        frameCountRef.current++;
+      })();
+    } catch (error) {
+      console.error('Frame processor error:', error);
     }
   }, [isInitialized]);
 
-  // Request camera permission
-  if (!permission) {
+  // Check camera permission and device
+  if (hasPermission === null) {
     return (
       <View style={styles.container}>
         <ActivityIndicator size="large" />
@@ -178,16 +153,21 @@ export default function CameraScreen() {
     );
   }
 
-  if (!permission.granted) {
+  if (hasPermission === false) {
     return (
       <View style={styles.container}>
         <Text style={styles.text}>Camera permission is required</Text>
-        <Text
-          style={[styles.text, styles.button]}
-          onPress={requestPermission}
-        >
-          Grant Permission
+        <Text style={styles.text}>
+          Please grant camera permission in your device settings
         </Text>
+      </View>
+    );
+  }
+
+  if (!device) {
+    return (
+      <View style={styles.container}>
+        <Text style={styles.text}>No camera device found</Text>
       </View>
     );
   }
@@ -217,18 +197,19 @@ export default function CameraScreen() {
 
   return (
     <View style={styles.container}>
-      <CameraView
-        ref={cameraRef}
+      <Camera
+        device={device}
+        isActive={isInitialized && hasPermission === true}
+        frameProcessor={frameProcessor}
         style={styles.camera}
-        facing="front"
       >
         <PoseOverlay
-          pose={pose}
+          pose={poseState}
           width={CAMERA_WIDTH}
           height={CAMERA_HEIGHT}
           useNormalizedCoordinates={true}
         />
-      </CameraView>
+      </Camera>
 
       {/* FPS Counter */}
       <View style={styles.fpsContainer}>
@@ -236,10 +217,10 @@ export default function CameraScreen() {
       </View>
 
       {/* Pose Score Indicator */}
-      {pose && (
+      {poseState && (
         <View style={styles.scoreContainer}>
           <Text style={styles.scoreText}>
-            Confidence: {(pose.score * 100).toFixed(0)}%
+            Confidence: {(poseState.score * 100).toFixed(0)}%
           </Text>
         </View>
       )}
