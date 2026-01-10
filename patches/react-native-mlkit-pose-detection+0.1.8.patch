@@ -1,0 +1,36 @@
+diff --git a/node_modules/react-native-mlkit-pose-detection/ios/SKRNMLKitPoseDetectionVisionCameraFrameProcessor.mm b/node_modules/react-native-mlkit-pose-detection/ios/SKRNMLKitPoseDetectionVisionCameraFrameProcessor.mm
+index 356b9da..e16ea27 100644
+--- a/node_modules/react-native-mlkit-pose-detection/ios/SKRNMLKitPoseDetectionVisionCameraFrameProcessor.mm
++++ b/node_modules/react-native-mlkit-pose-detection/ios/SKRNMLKitPoseDetectionVisionCameraFrameProcessor.mm
+@@ -12,6 +12,7 @@
+ #import <MLKitPoseDetectionCommon/MLKitPoseDetectionCommon.h>
+ #import <MLKitPoseDetection/MLKitPoseDetection.h>
+ #import <MLKitPoseDetectionAccurate/MLKitPoseDetectionAccurate.h>
++#import <VisionCamera/FrameProcessorPlugin.h>
+ // TODO: Change syntax to be similar to react-native-mlkit-face-detection
+ //#import <SKRNMLKitiOSPoseDetector.h>
+ //#import <map>
+@@ -114,12 +115,21 @@ -(void)setPoseDetector:(MLKPoseDetector *)p {
+     return [self posesToBridge:poses];
+ }
+ 
+-static inline id SKRNMLKitPoseDetectionVisionCameraFrameProcessorPlugin(Frame* frame, NSArray* arguments) {
++@end
++
++// Wrapper class for Vision Camera 4.x compatibility
++@interface SKRNMLKitPoseDetectionFrameProcessorPlugin : FrameProcessorPlugin
++@end
++
++@implementation SKRNMLKitPoseDetectionFrameProcessorPlugin
++
++- (id)callback:(Frame*)frame withArguments:(NSDictionary* _Nullable)arguments {
+     SKRNMLKitPoseDetectionVisionCameraFrameProcessor *processor = [SKRNMLKitPoseDetectionVisionCameraFrameProcessor sharedInstance];
+     return [processor poseResultsForVisionCameraFrame:frame];
+ }
+ 
+-VISION_EXPORT_FRAME_PROCESSOR(SKRNMLKitPoseDetectionVisionCameraFrameProcessorPlugin);
+ @end
+ 
++VISION_EXPORT_FRAME_PROCESSOR(SKRNMLKitPoseDetectionFrameProcessorPlugin, __SKRNMLKitPoseDetectionVisionCameraFrameProcessorPlugin);
++
+ #endif
