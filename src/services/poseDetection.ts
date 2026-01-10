@@ -27,8 +27,9 @@ class PoseDetectionService {
 
   /**
    * Initialize TensorFlow.js and load the MoveNet model
+   * @param onProgress - Optional callback for loading progress
    */
-  async initialize(): Promise<void> {
+  async initialize(onProgress?: (message: string) => void): Promise<void> {
     if (this.isInitialized) {
       return;
     }
@@ -41,22 +42,50 @@ class PoseDetectionService {
       this.isLoading = true;
 
       // Initialize TensorFlow.js for React Native
+      onProgress?.('Initializing TensorFlow.js...');
+      console.log('Initializing TensorFlow.js...');
       await tf.ready();
+      console.log('TensorFlow.js ready');
 
       // Load MoveNet Lightning model
-      console.log('Loading MoveNet Lightning model...');
-      this.model = await tf.loadGraphModel(MOVENET_LIGHTNING_MODEL_URL, {
+      // Note: This downloads ~7MB from TensorFlow Hub, can take 10-30+ seconds on first load
+      onProgress?.('Downloading MoveNet model (this may take 30-60 seconds on first load)...');
+      console.log('Loading MoveNet Lightning model from TensorFlow Hub...');
+      console.log('Model URL:', MOVENET_LIGHTNING_MODEL_URL);
+      
+      // Add timeout for model loading (90 seconds)
+      const loadPromise = tf.loadGraphModel(MOVENET_LIGHTNING_MODEL_URL, {
         fromTFHub: true,
       });
+      
+      const timeoutPromise = new Promise<never>((_, reject) => {
+        setTimeout(() => {
+          reject(new Error('Model loading timeout: Please check your internet connection and try again'));
+        }, 90000); // 90 second timeout
+      });
 
+      this.model = await Promise.race([loadPromise, timeoutPromise]);
+
+      onProgress?.('Model loaded successfully!');
       console.log('MoveNet Lightning model loaded successfully');
       this.isInitialized = true;
     } catch (error) {
       console.error('Error initializing pose detection:', error);
       this.isLoading = false;
-      throw new Error(
-        `Failed to initialize pose detection: ${error instanceof Error ? error.message : 'Unknown error'}`
-      );
+      
+      // Provide more helpful error messages
+      let errorMessage = 'Failed to initialize pose detection';
+      if (error instanceof Error) {
+        if (error.message.includes('timeout')) {
+          errorMessage = 'Model loading timed out. Please check your internet connection and try again.';
+        } else if (error.message.includes('network') || error.message.includes('fetch')) {
+          errorMessage = 'Network error loading model. Please check your internet connection.';
+        } else {
+          errorMessage = `Failed to load model: ${error.message}`;
+        }
+      }
+      
+      throw new Error(errorMessage);
     } finally {
       this.isLoading = false;
     }

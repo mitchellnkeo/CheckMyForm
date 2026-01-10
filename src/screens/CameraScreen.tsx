@@ -27,6 +27,7 @@ export default function CameraScreen() {
   const [permission, requestPermission] = useCameraPermissions();
   const [isInitialized, setIsInitialized] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
+  const [loadingMessage, setLoadingMessage] = useState('Initializing...');
   const [error, setError] = useState<string | null>(null);
   const [pose, setPose] = useState<Pose | null>(null);
   const [fps, setFps] = useState(0);
@@ -45,9 +46,14 @@ export default function CameraScreen() {
       try {
         setIsLoading(true);
         setError(null);
+        setLoadingMessage('Initializing TensorFlow.js...');
 
-        // Initialize pose detection service
-        await poseDetectionService.initialize();
+        // Initialize pose detection service with progress callback
+        await poseDetectionService.initialize((message) => {
+          if (mounted) {
+            setLoadingMessage(message);
+          }
+        });
 
         if (mounted) {
           setIsInitialized(true);
@@ -171,7 +177,11 @@ export default function CameraScreen() {
     return (
       <View style={styles.container}>
         <ActivityIndicator size="large" color="#00FF00" />
-        <Text style={styles.text}>Loading pose detection model...</Text>
+        <Text style={styles.text}>{loadingMessage}</Text>
+        <Text style={styles.hintText}>
+          First load may take 30-60 seconds{'\n'}
+          (downloading ~7MB model)
+        </Text>
         {error && <Text style={styles.errorText}>{error}</Text>}
       </View>
     );
@@ -272,5 +282,12 @@ const styles = StyleSheet.create({
   scoreText: {
     color: '#00FF00',
     fontSize: 14,
+  },
+  hintText: {
+    color: '#999',
+    fontSize: 12,
+    marginTop: 10,
+    textAlign: 'center',
+    paddingHorizontal: 20,
   },
 });
