@@ -16,6 +16,7 @@ Example: `08JAN26.md` for January 8, 2026
 ### 2026
 
 - [January 8, 2026](./BuildJournal/08JAN26.md) - Phase 0: Project Setup & Environment Configuration
+- [January 9, 2026](./BuildJournal/09JAN26.md) - Phase 1: Pose Detection Foundation (Initial Implementation)
 
 ---
 
