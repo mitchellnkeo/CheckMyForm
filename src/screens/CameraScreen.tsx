@@ -6,10 +6,12 @@ import {
   Dimensions,
   ActivityIndicator,
   Alert,
+  Image,
 } from 'react-native';
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import * as tf from '@tensorflow/tfjs';
 import '@tensorflow/tfjs-react-native';
+import * as ImageManipulator from 'expo-image-manipulator';
 import { poseDetectionService } from '@/services/poseDetection';
 import { Pose } from '@/types/pose';
 import PoseOverlay from '@/components/PoseOverlay';
@@ -20,7 +22,9 @@ const CAMERA_WIDTH = SCREEN_WIDTH;
 const CAMERA_HEIGHT = SCREEN_WIDTH / CAMERA_ASPECT_RATIO;
 
 // Target FPS for pose detection
-const TARGET_FPS = 30;
+// Note: Using lower rate (5 FPS) for MVP with takePictureAsync
+// Future: Optimize to 30 FPS using expo-gl texture
+const TARGET_FPS = 5; // Reduced for MVP - takePictureAsync is slow
 const FRAME_INTERVAL_MS = 1000 / TARGET_FPS;
 
 export default function CameraScreen() {
@@ -134,17 +138,83 @@ export default function CameraScreen() {
     lastFrameTimeRef.current = now;
 
     try {
-      // Note: For real-time processing, we'll need to use expo-gl texture
-      // For now, this is a placeholder that will be optimized in next iteration
-      // The actual implementation will use GL texture to get frames efficiently
+      // Capture frame from camera using takePictureAsync
+      // NOTE: This is an MVP approach - takePictureAsync is slow (200-500ms per frame)
+      // Processing at 5 FPS to avoid overwhelming the device
+      // TODO: Optimize using expo-gl texture for real-time processing at 30 FPS
       
-      // TODO: Implement frame capture using expo-gl texture
-      // For MVP, we'll process frames less frequently to avoid performance issues
+      const photo = await cameraRef.current.takePictureAsync({
+        quality: 0.3, // Lower quality for faster processing
+        base64: true,
+        skipProcessing: true, // Skip processing for speed
+        exif: false,
+      });
+
+      if (!photo || !photo.uri || !photo.base64) {
+        processingRef.current = false;
+        return;
+      }
+
+      // Resize image to model input size (256x256) for faster processing
+      const manipulatedImage = await ImageManipulator.manipulateAsync(
+        photo.uri,
+        [{ resize: { width: 256, height: 256 } }],
+        { 
+          compress: 0.8, 
+          format: ImageManipulator.SaveFormat.JPEG, 
+          base64: true 
+        }
+      );
+
+      if (!manipulatedImage.base64) {
+        processingRef.current = false;
+        return;
+      }
+
+      // Convert base64 image to tensor
+      // Using a React Native compatible approach with Image component
+      // This is a workaround - proper solution would use expo-gl texture
+      const imageDataUri = `data:image/jpeg;base64,${manipulatedImage.base64}`;
       
-      frameCountRef.current++;
+      // Load image using React Native Image component
+      return new Promise<void>((resolve) => {
+        Image.getSize(
+          imageDataUri,
+          async (width, height) => {
+            try {
+              // For React Native, we need to use a different approach
+              // Using fetch to get image data, then converting
+              // Note: This is a simplified approach - may need optimization
+              const response = await fetch(imageDataUri);
+              const arrayBuffer = await response.arrayBuffer();
+              const uint8Array = new Uint8Array(arrayBuffer);
+              
+              // Create image tensor from pixel data
+              // This is a placeholder - actual implementation needs proper pixel extraction
+              // For now, logging that we need to implement proper tensor conversion
+              console.log('Frame captured, need to implement tensor conversion');
+              
+              // TODO: Implement proper image to tensor conversion for React Native
+              // Options: expo-gl texture, react-native-image-to-tensor, or custom solution
+              
+              frameCountRef.current++;
+              processingRef.current = false;
+              resolve();
+            } catch (tensorError) {
+              console.error('Error processing image:', tensorError);
+              processingRef.current = false;
+              resolve();
+            }
+          },
+          (error) => {
+            console.error('Error getting image size:', error);
+            processingRef.current = false;
+            resolve();
+          }
+        );
+      });
     } catch (err) {
       console.error('Error processing frame:', err);
-    } finally {
       processingRef.current = false;
     }
   }, [isInitialized]);
